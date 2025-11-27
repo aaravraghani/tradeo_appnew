@@ -5,14 +5,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-  
   body {
-    @apply bg-background text-text-primary antialiased;
+    @apply bg-white text-text-primary antialiased;  ✅ Using defined classes
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
+}
+
+
+
 
   html {
     scroll-behavior: smooth;
