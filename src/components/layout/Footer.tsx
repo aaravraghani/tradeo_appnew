@@ -2,7 +2,7 @@ import React from 'react'
 import Link from 'next/link'
 import { Container } from '@/components/ui/Container'
 import { APP_NAME, SOCIAL_LINKS } from '@/lib/constants'
-import { Instagram, Linkedin } from 'lucide-react'
+import { Instagram, Linkedin, Tiktok } from 'lucide-react'
 
 export const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear()
