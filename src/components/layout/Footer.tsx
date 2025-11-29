@@ -120,7 +120,7 @@ export const Footer: React.FC = () => {
               © {currentYear} {APP_NAME}. All rights reserved.
             </p>
             <p className="text-xs text-gray-500">
-              Disclaimer: {APP_NAME} is an educational platform. Not financial advice.
+              Disclaimer: {APP_NAME} is an educational platform. Do not use it as financial advice.
             </p>
           </div>
         </div>
