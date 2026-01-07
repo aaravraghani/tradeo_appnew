@@ -1,10 +1,10 @@
-import { SignIn } from '@clerk/nextjs'
+import { SignUp } from '@clerk/nextjs'
 
-export default function SignInPage() {
+export default function SignUpPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background-gray px-4">
       <div className="w-full max-w-md">
-        <SignIn 
+        <SignUp 
           appearance={{
             elements: {
               rootBox: 'mx-auto',
@@ -12,11 +12,9 @@ export default function SignInPage() {
             },
           }}
           routing="path"
-          path="/sign-in"
+          path="/sign-up"
         />
       </div>
     </div>
   )
 }
-
-
