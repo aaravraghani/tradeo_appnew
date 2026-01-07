@@ -44,7 +44,13 @@ export const Header: React.FC = () => {
                 <Button href="/home" variant="ghost">
                   Dashboard
                 </Button>
-                <UserButton afterSignOutUrl="/" />
+                <UserButton 
+                  appearance={{
+                    elements: {
+                      avatarBox: 'w-9 h-9',
+                    },
+                  }}
+                />
               </>
             ) : (
               <>
@@ -88,7 +94,7 @@ export const Header: React.FC = () => {
                     <Button href="/home" variant="ghost">
                       Dashboard
                     </Button>
-                    <UserButton afterSignOutUrl="/" />
+                    <UserButton />
                   </>
                 ) : (
                   <>
@@ -112,5 +118,3 @@ export const Header: React.FC = () => {
     </header>
   )
 }
-
-
