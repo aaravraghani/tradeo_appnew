@@ -1,0 +1,408 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER & PROFILE ====================
+
+model User {
+  id            String    @id @default(cuid())
+  clerkId       String    @unique
+  email         String    @unique
+  firstName     String?
+  lastName      String?
+  imageUrl      String?
+  country       String?   // SG, ID, TH, VN, PH, MY
+  language      String?   // en, id, th, vi, etc.
+  dateOfBirth   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  profile       UserProfile?
+  progress      LearningProgress[]
+  portfolio     Portfolio?
+  transactions  Transaction[]
+  badges        UserBadge[]
+  missions      UserMission[]
+  streaks       DailyStreak[]
+  aiChats       AIChatHistory[]
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+model UserProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Gamification
+  totalXP               Int      @default(0)
+  level                 Int      @default(1)
+  currentStreak         Int      @default(0)
+  longestStreak         Int      @default(0)
+  totalLessonsCompleted Int      @default(0)
+  totalTradesMade       Int      @default(0)
+  
+  // Settings
+  notificationsEnabled  Boolean  @default(true)
+  emailNotifications    Boolean  @default(true)
+  darkMode              Boolean  @default(false)
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ==================== LEARNING SYSTEM ====================
+
+model Module {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  icon        String?
+  order       Int
+  difficulty  String   // beginner, intermediate, advanced
+  estimatedTime Int    // in minutes
+  xpReward    Int      @default(0)
+  
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  lessons     Lesson[]
+  progress    LearningProgress[]
+
+  @@index([order])
+}
+
+model Lesson {
+  id          String   @id @default(cuid())
+  moduleId    String
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  title       String
+  content     String   @db.Text // Markdown or JSON
+  order       Int
+  duration    Int      // in minutes
+  xpReward    Int      @default(50)
+  
+  // Lesson type
+  type        String   // video, text, interactive, quiz
+  videoUrl    String?
+  
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  quiz        Quiz?
+  progress    LessonProgress[]
+
+  @@index([moduleId])
+  @@index([order])
+}
+
+model Quiz {
+  id          String   @id @default(cuid())
+  lessonId    String   @unique
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  title       String
+  passingScore Int     @default(70) // percentage
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  questions   QuizQuestion[]
+  attempts    QuizAttempt[]
+}
+
+model QuizQuestion {
+  id          String   @id @default(cuid())
+  quizId      String
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  question    String   @db.Text
+  options     String[] // Array of options
+  correctAnswer Int    // Index of correct answer
+  explanation String?  @db.Text
+  order       Int
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([quizId])
+}
+
+model LearningProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleId    String
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  status      String   @default("not_started") // not_started, in_progress, completed
+  progress    Int      @default(0) // 0-100
+  completedAt DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  lessons     LessonProgress[]
+
+  @@unique([userId, moduleId])
+  @@index([userId])
+  @@index([moduleId])
+}
+
+model LessonProgress {
+  id                  String   @id @default(cuid())
+  learningProgressId  String
+  learningProgress    LearningProgress @relation(fields: [learningProgressId], references: [id], onDelete: Cascade)
+  lessonId            String
+  lesson              Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  isCompleted         Boolean  @default(false)
+  timeSpent           Int      @default(0) // in seconds
+  xpEarned            Int      @default(0)
+  completedAt         DateTime?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([learningProgressId, lessonId])
+  @@index([lessonId])
+}
+
+model QuizAttempt {
+  id          String   @id @default(cuid())
+  quizId      String
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  score       Int
+  answers     String   @db.Text // JSON of answers
+  passed      Boolean
+  timeSpent   Int      // in seconds
+  
+  createdAt   DateTime @default(now())
+
+  @@index([quizId])
+  @@index([userId])
+}
+
+// ==================== PORTFOLIO & TRADING ====================
+
+model Portfolio {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  cashBalance     Float    @default(100000) // Starting with $100,000 virtual money
+  totalValue      Float    @default(100000)
+  totalPnL        Float    @default(0)
+  totalPnLPercent Float    @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  holdings        Holding[]
+  watchlist       Watchlist[]
+
+  @@index([userId])
+}
+
+model Holding {
+  id              String   @id @default(cuid())
+  portfolioId     String
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  
+  symbol          String   // Stock ticker symbol
+  companyName     String
+  quantity        Float
+  averagePrice    Float
+  currentPrice    Float
+  totalValue      Float
+  pnl             Float
+  pnlPercent      Float
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([portfolioId, symbol])
+  @@index([portfolioId])
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            String   // buy, sell
+  symbol          String
+  companyName     String
+  quantity        Float
+  price           Float
+  totalAmount     Float
+  fees            Float    @default(0)
+  
+  status          String   @default("completed") // pending, completed, cancelled
+  
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([symbol])
+  @@index([createdAt])
+}
+
+model Watchlist {
+  id              String   @id @default(cuid())
+  portfolioId     String
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  
+  symbol          String
+  companyName     String
+  addedAt         DateTime @default(now())
+
+  @@unique([portfolioId, symbol])
+  @@index([portfolioId])
+}
+
+// ==================== GAMIFICATION ====================
+
+model Badge {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  icon        String   // Emoji or icon name
+  rarity      String   // common, rare, epic, legendary
+  
+  // Unlock criteria
+  criteria    String   @db.Text // JSON with requirements
+  
+  createdAt   DateTime @default(now())
+
+  // Relations
+  users       UserBadge[]
+}
+
+model UserBadge {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeId     String
+  badge       Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  
+  earnedAt    DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+}
+
+model Mission {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  type        String   // daily, weekly, achievement
+  
+  // Requirements
+  requirements String  @db.Text // JSON with criteria
+  xpReward    Int
+  
+  isActive    Boolean  @default(true)
+  startDate   DateTime?
+  endDate     DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userMissions UserMission[]
+}
+
+model UserMission {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  missionId   String
+  mission     Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  
+  progress    Int      @default(0) // 0-100
+  isCompleted Boolean  @default(false)
+  completedAt DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, missionId])
+  @@index([userId])
+}
+
+model DailyStreak {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date        DateTime @default(now())
+  completed   Boolean  @default(false)
+  
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+}
+
+// ==================== AI COACH ====================
+
+model AIChatHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  question    String   @db.Text
+  answer      String   @db.Text
+  context     String?  @db.Text // Additional context
+  
+  helpful     Boolean?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ==================== LEADERBOARD ====================
+
+model Leaderboard {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // global, weekly, friends
+  period      String   // all_time, weekly, monthly
+  
+  rank        Int
+  score       Float    // Could be XP, portfolio return, etc.
+  metric      String   // xp, portfolio_return, lessons_completed
+  
+  periodStart DateTime
+  periodEnd   DateTime
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, type, period, periodStart])
+  @@index([type, period, periodStart])
+  @@index([rank])
+}
+
+
+
