@@ -1,9 +1,7 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-
-// ── Validation schema ──────────────────────────────────────────────────────
 
 const onboardingSchema = z.object({
   location:           z.enum(['indonesia', 'southeast_asia', 'outside_sea']),
@@ -15,8 +13,6 @@ const onboardingSchema = z.object({
   appUsageFrequency:  z.enum(['daily', 'few_week', 'once_week', 'occasional']),
 })
 
-// ── POST /api/onboarding — save answers ───────────────────────────────────
-
 export async function POST(req: Request) {
   try {
     const { userId: clerkId } = await auth()
@@ -25,8 +21,6 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json()
-
-    // Validate with Zod
     const result = onboardingSchema.safeParse(body)
     if (!result.success) {
       return NextResponse.json(
@@ -37,32 +31,52 @@ export async function POST(req: Request) {
 
     const answers = result.data
 
-    const user = await prisma.user.findUnique({ where: { clerkId } })
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    // Fetch Clerk user details in case we need to create the DB record
+    const clerkUser = await currentUser()
+    if (!clerkUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
+    const email = clerkUser.emailAddresses[0]?.emailAddress
+    if (!email) {
+      return NextResponse.json({ error: 'No email found' }, { status: 400 })
+    }
+
+    // Upsert user — creates if webhook never fired, updates if it did
+    const user = await prisma.user.upsert({
+      where: { clerkId },
+      update: {
         onboardingCompleted: true,
         ...answers,
       },
-      select: { onboardingCompleted: true },
+      create: {
+        clerkId,
+        email,
+        firstName: clerkUser.firstName ?? null,
+        lastName:  clerkUser.lastName  ?? null,
+        imageUrl:  clerkUser.imageUrl  ?? null,
+        onboardingCompleted: true,
+        ...answers,
+        // Bootstrap related records
+        profile: {
+          create: {},
+        },
+        portfolio: {
+          create: {},
+        },
+      },
     })
 
     return NextResponse.json({
       success: true,
       message: 'Onboarding completed',
-      user: updatedUser,
+      user: { onboardingCompleted: user.onboardingCompleted },
     })
   } catch (error) {
     console.error('POST /api/onboarding error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
-// ── GET /api/onboarding — check status ────────────────────────────────────
 
 export async function GET() {
   try {
@@ -85,23 +99,22 @@ export async function GET() {
       },
     })
 
+    // If user doesn't exist yet, treat as onboarding not completed
     if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      return NextResponse.json({ onboardingCompleted: false, responses: null })
     }
 
     return NextResponse.json({
       onboardingCompleted: user.onboardingCompleted,
-      responses: user.onboardingCompleted
-        ? {
-            location:          user.location,
-            experience:        user.experience,
-            goal:              user.goal,
-            riskTolerance:     user.riskTolerance,
-            investmentHorizon: user.investmentHorizon,
-            learningStyle:     user.learningStyle,
-            appUsageFrequency: user.appUsageFrequency,
-          }
-        : null,
+      responses: user.onboardingCompleted ? {
+        location:          user.location,
+        experience:        user.experience,
+        goal:              user.goal,
+        riskTolerance:     user.riskTolerance,
+        investmentHorizon: user.investmentHorizon,
+        learningStyle:     user.learningStyle,
+        appUsageFrequency: user.appUsageFrequency,
+      } : null,
     })
   } catch (error) {
     console.error('GET /api/onboarding error:', error)
