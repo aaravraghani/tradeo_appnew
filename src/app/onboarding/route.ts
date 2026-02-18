@@ -1,97 +1,87 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { z } from 'zod'
+
+// ── Validation schema ──────────────────────────────────────────────────────
+
+const onboardingSchema = z.object({
+  location:           z.enum(['indonesia', 'southeast_asia', 'outside_sea']),
+  experience:         z.enum(['never', 'little', 'invested', 'regular']),
+  goal:               z.enum(['grow_money', 'learning', 'independence', 'curious']),
+  riskTolerance:      z.enum(['no_loss', 'small_risk', 'ups_downs', 'high_risk']),
+  investmentHorizon:  z.enum(['less_1y', '1_3y', '3_5y', 'more_5y']),
+  learningStyle:      z.enum(['quick_tips', 'step_by_step', 'practice', 'videos']),
+  appUsageFrequency:  z.enum(['daily', 'few_week', 'once_week', 'occasional']),
+})
+
+// ── POST /api/onboarding — save answers ───────────────────────────────────
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth()
-
-    if (!userId) {
+    const { userId: clerkId } = await auth()
+    if (!clerkId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const answers = await req.json()
+    const body = await req.json()
 
-    // Validate answers
-    const requiredFields = [
-      'location',
-      'experience',
-      'goal',
-      'riskTolerance',
-      'investmentHorizon',
-      'learningStyle',
-      'appUsageFrequency',
-    ]
-
-    const missingFields = requiredFields.filter(field => !answers[field])
-    if (missingFields.length > 0) {
+    // Validate with Zod
+    const result = onboardingSchema.safeParse(body)
+    if (!result.success) {
       return NextResponse.json(
-        { error: `Missing required fields: ${missingFields.join(', ')}` },
+        { error: 'Invalid answers', details: result.error.flatten() },
         { status: 400 }
       )
     }
 
-    // Find user by Clerk ID
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    })
+    const answers = result.data
 
+    const user = await prisma.user.findUnique({ where: { clerkId } })
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Update user with onboarding responses
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
         onboardingCompleted: true,
-        location: answers.location,
-        experience: answers.experience,
-        goal: answers.goal,
-        riskTolerance: answers.riskTolerance,
-        investmentHorizon: answers.investmentHorizon,
-        learningStyle: answers.learningStyle,
-        appUsageFrequency: answers.appUsageFrequency,
-        updatedAt: new Date(),
+        ...answers,
       },
+      select: { onboardingCompleted: true },
     })
 
     return NextResponse.json({
       success: true,
-      message: 'Onboarding completed successfully',
-      user: {
-        onboardingCompleted: updatedUser.onboardingCompleted,
-      },
+      message: 'Onboarding completed',
+      user: updatedUser,
     })
   } catch (error) {
-    console.error('Error saving onboarding:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    console.error('POST /api/onboarding error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// GET endpoint to check onboarding status
+// ── GET /api/onboarding — check status ────────────────────────────────────
+
 export async function GET() {
   try {
-    const { userId } = await auth()
-
-    if (!userId) {
+    const { userId: clerkId } = await auth()
+    if (!clerkId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { clerkId },
       select: {
         onboardingCompleted: true,
-        location: true,
-        experience: true,
-        goal: true,
-        riskTolerance: true,
-        investmentHorizon: true,
-        learningStyle: true,
-        appUsageFrequency: true,
+        location:           true,
+        experience:         true,
+        goal:               true,
+        riskTolerance:      true,
+        investmentHorizon:  true,
+        learningStyle:      true,
+        appUsageFrequency:  true,
       },
     })
 
@@ -101,22 +91,21 @@ export async function GET() {
 
     return NextResponse.json({
       onboardingCompleted: user.onboardingCompleted,
-      responses: user.onboardingCompleted ? {
-        location: user.location,
-        experience: user.experience,
-        goal: user.goal,
-        riskTolerance: user.riskTolerance,
-        investmentHorizon: user.investmentHorizon,
-        learningStyle: user.learningStyle,
-        appUsageFrequency: user.appUsageFrequency,
-      } : null,
+      responses: user.onboardingCompleted
+        ? {
+            location:          user.location,
+            experience:        user.experience,
+            goal:              user.goal,
+            riskTolerance:     user.riskTolerance,
+            investmentHorizon: user.investmentHorizon,
+            learningStyle:     user.learningStyle,
+            appUsageFrequency: user.appUsageFrequency,
+          }
+        : null,
     })
   } catch (error) {
-    console.error('Error fetching onboarding status:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    console.error('GET /api/onboarding error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
