@@ -23,18 +23,19 @@ export default clerkMiddleware(async (auth, request) => {
   // 1. Public routes — let through immediately, no auth needed
   if (isPublicRoute(request)) return
 
-  // 2. All other routes require authentication
-  //    Clerk will redirect to /sign-in automatically if not signed in
-  const { userId, sessionClaims } = await auth.protect()
+  // 2. Protect all non-public routes — Clerk v5 syntax
+  const { userId } = await auth()
+  if (!userId) {
+    const signInUrl = new URL('/sign-in', request.url)
+    signInUrl.searchParams.set('redirect_url', request.url)
+    return NextResponse.redirect(signInUrl)
+  }
 
-  // 3. If signed in and hitting a dashboard route, check onboarding
-  //    We read from a cookie set by the onboarding API after completion
-  //    instead of making an internal fetch (which breaks Clerk auth detection)
+  // 3. Dashboard routes — check onboarding via cookie
+  //    Cookie is set by /api/onboarding after completion
+  //    This avoids making an internal fetch (which breaks Clerk auth detection)
   if (isDashboardRoute(request)) {
     const onboardingCookie = request.cookies.get('tradeo_onboarding_complete')
-
-    // Cookie not present means we haven't confirmed onboarding status yet.
-    // Redirect to onboarding — it will redirect straight to /home if already done.
     if (!onboardingCookie) {
       const url = request.nextUrl.clone()
       url.pathname = '/onboarding'
