@@ -1,3 +1,4 @@
+// src/app/api/onboarding/route.ts
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -13,6 +14,7 @@ const onboardingSchema = z.object({
   appUsageFrequency:  z.enum(['daily', 'few_week', 'once_week', 'occasional']),
 })
 
+// ─── POST — save onboarding answers ──────────────────────────────────────────
 export async function POST(req: Request) {
   try {
     const { userId: clerkId } = await auth()
@@ -30,8 +32,6 @@ export async function POST(req: Request) {
     }
 
     const answers = result.data
-
-    // Fetch Clerk user details in case we need to create the DB record
     const clerkUser = await currentUser()
     if (!clerkUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -42,8 +42,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No email found' }, { status: 400 })
     }
 
-    // Upsert user — creates if webhook never fired, updates if it did
-    const user = await prisma.user.upsert({
+    await prisma.user.upsert({
       where: { clerkId },
       update: {
         onboardingCompleted: true,
@@ -57,27 +56,33 @@ export async function POST(req: Request) {
         imageUrl:  clerkUser.imageUrl  ?? null,
         onboardingCompleted: true,
         ...answers,
-        // Bootstrap related records
-        profile: {
-          create: {},
-        },
-        portfolio: {
-          create: {},
-        },
+        profile:   { create: {} },
+        portfolio: { create: {} },
       },
     })
 
-    return NextResponse.json({
+    // ✅ Set a cookie so middleware can detect onboarding is done
+    //    without making an internal API fetch (which breaks Clerk auth)
+    const response = NextResponse.json({
       success: true,
       message: 'Onboarding completed',
-      user: { onboardingCompleted: user.onboardingCompleted },
     })
+    response.cookies.set('tradeo_onboarding_complete', '1', {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      // Expire in 1 year — user only onboards once
+      maxAge: 60 * 60 * 24 * 365,
+    })
+    return response
+
   } catch (error) {
     console.error('POST /api/onboarding error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
+// ─── GET — check onboarding status + set cookie if already done ──────────────
 export async function GET() {
   try {
     const { userId: clerkId } = await auth()
@@ -87,35 +92,27 @@ export async function GET() {
 
     const user = await prisma.user.findUnique({
       where: { clerkId },
-      select: {
-        onboardingCompleted: true,
-        location:           true,
-        experience:         true,
-        goal:               true,
-        riskTolerance:      true,
-        investmentHorizon:  true,
-        learningStyle:      true,
-        appUsageFrequency:  true,
-      },
+      select: { onboardingCompleted: true },
     })
 
-    // If user doesn't exist yet, treat as onboarding not completed
-    if (!user) {
-      return NextResponse.json({ onboardingCompleted: false, responses: null })
+    const completed = user?.onboardingCompleted ?? false
+
+    const response = NextResponse.json({
+      onboardingCompleted: completed,
+    })
+
+    // ✅ If already completed, set the cookie so middleware stops redirecting
+    if (completed) {
+      response.cookies.set('tradeo_onboarding_complete', '1', {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 365,
+      })
     }
 
-    return NextResponse.json({
-      onboardingCompleted: user.onboardingCompleted,
-      responses: user.onboardingCompleted ? {
-        location:          user.location,
-        experience:        user.experience,
-        goal:              user.goal,
-        riskTolerance:     user.riskTolerance,
-        investmentHorizon: user.investmentHorizon,
-        learningStyle:     user.learningStyle,
-        appUsageFrequency: user.appUsageFrequency,
-      } : null,
-    })
+    return response
+
   } catch (error) {
     console.error('GET /api/onboarding error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
