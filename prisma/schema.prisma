@@ -16,6 +16,8 @@ model User {
   firstName     String?
   lastName      String?
   imageUrl      String?
+  username      String?   @unique   
+  bio           String?            
   country       String?
   language      String?
   dateOfBirth   DateTime?
