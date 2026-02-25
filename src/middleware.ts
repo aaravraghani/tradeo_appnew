@@ -6,52 +6,46 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
-  '/onboarding(.*)',   // allow onboarding page without loop
+  '/onboarding(.*)',
+])
+
+const isDashboardRoute = createRouteMatcher([
+  '/home(.*)',
+  '/learn(.*)',
+  '/simulate(.*)',
+  '/track(.*)',
+  '/social(.*)',
+  '/profile(.*)',
+  '/settings(.*)',
 ])
 
 export default clerkMiddleware(async (auth, request) => {
-  // Let public routes through immediately
+  // 1. Public routes — let through immediately, no auth needed
   if (isPublicRoute(request)) return
 
-  const { userId } = await auth()
+  // 2. All other routes require authentication
+  //    Clerk will redirect to /sign-in automatically if not signed in
+  const { userId, sessionClaims } = await auth.protect()
 
-  // Not signed in — Clerk will redirect to /sign-in automatically
-  if (!userId) {
-    auth().protect()
-    return
-  }
+  // 3. If signed in and hitting a dashboard route, check onboarding
+  //    We read from a cookie set by the onboarding API after completion
+  //    instead of making an internal fetch (which breaks Clerk auth detection)
+  if (isDashboardRoute(request)) {
+    const onboardingCookie = request.cookies.get('tradeo_onboarding_complete')
 
-  // Signed in — check onboarding status before allowing dashboard access
-  // We call our own API to avoid importing Prisma into middleware (Edge runtime)
-  const url = request.nextUrl.clone()
-  const isDashboard = url.pathname.startsWith('/home') ||
-                      url.pathname.startsWith('/learn') ||
-                      url.pathname.startsWith('/trade') ||
-                      url.pathname.startsWith('/profile')
-
-  if (isDashboard) {
-    try {
-      const onboardingRes = await fetch(
-        new URL('/api/onboarding', request.url),
-        {
-          headers: { cookie: request.headers.get('cookie') ?? '' },
-        }
-      )
-      if (onboardingRes.ok) {
-        const data = await onboardingRes.json()
-        if (!data.onboardingCompleted) {
-          url.pathname = '/onboarding'
-          return NextResponse.redirect(url)
-        }
-      }
-    } catch {
-      // If check fails, let the request through — better UX than an infinite loop
+    // Cookie not present means we haven't confirmed onboarding status yet.
+    // Redirect to onboarding — it will redirect straight to /home if already done.
+    if (!onboardingCookie) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/onboarding'
+      return NextResponse.redirect(url)
     }
   }
 })
 
 export const config = {
   matcher: [
+    // Skip Next.js internals and static files
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     '/(api|trpc)(.*)',
   ],
