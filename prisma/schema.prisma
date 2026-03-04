@@ -363,10 +363,20 @@ model Leaderboard {
   periodEnd   DateTime
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  
 
   @@unique([userId, type, period, periodStart])
   @@index([type, period, periodStart])
   @@index([rank])
 }
+model SocialLike {
+  id         String   @id @default(cuid())
+  userId     String
+  feedItemId String   // composite key e.g. "badge-{id}" or "lesson-{id}"
+  createdAt  DateTime @default(now())
 
+  @@unique([userId, feedItemId])
+  @@index([userId])
+  @@index([feedItemId])
+}
 
