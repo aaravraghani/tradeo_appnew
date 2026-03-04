@@ -468,9 +468,9 @@ export default function SocialPage() {
           </div>
         ) : data ? (
           <>
-            {tab === 'leaderboard' && <LeaderboardTab entries={data.leaderboard} myStats={data.myStats} />}
-            {tab === 'feed' && <FeedTab items={data.feed} onLike={handleLike} />}
-            {tab === 'challenges' && <ChallengesTab challenges={data.challenges} />}
+            {tab === 'leaderboard' && <LeaderboardTab entries={data.leaderboard ?? []} myStats={data.myStats ?? { rank: 1, xp: 0, streak: 0, level: 1 }} />}
+            {tab === 'feed' && <FeedTab items={data.feed ?? []} onLike={handleLike} />}
+            {tab === 'challenges' && <ChallengesTab challenges={data.challenges ?? []} />}
           </>
         ) : null}
       </Container>
