@@ -1,5 +1,4 @@
-// src/app/api/social/route.ts
-// GET /api/social  → leaderboard + activity feed + challenges
+
 
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
