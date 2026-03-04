@@ -52,6 +52,7 @@ export default function OnboardingPage() {
         throw new Error(data.error ?? 'Something went wrong')
       }
 
+      // Cookie is set server-side by the API — middleware will now allow /home
       router.push('/home')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save. Please try again.')
