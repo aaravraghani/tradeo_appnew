@@ -17,6 +17,7 @@ const isDashboardRoute = createRouteMatcher([
   '/social(.*)',
   '/profile(.*)',
   '/settings(.*)',
+  '/admin(.*)',
 ])
 
 export default clerkMiddleware(async (auth, request) => {
