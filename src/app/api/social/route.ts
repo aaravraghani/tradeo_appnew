@@ -1,4 +1,5 @@
-
+// src/app/api/social/route.ts
+// Full replacement — adds followingIds set so frontend knows who you follow
 
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
@@ -25,6 +26,13 @@ export async function GET() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // ── Who I already follow (needed to render correct button state) ──────────
+    const myFollowing = await prisma.userFollow.findMany({
+      where: { followerId: me.id },
+      select: { followingId: true },
+    })
+    const followingIds = new Set(myFollowing.map(f => f.followingId))
+
     // ── Leaderboard ──────────────────────────────────────────────────────────
     let leaderboard: object[] = []
     let myRank = 1
@@ -50,7 +58,7 @@ export async function GET() {
         },
       })
 
-      const rankIdx = topProfiles.findIndex((p) => p.user.clerkId === clerkId)
+      const rankIdx = topProfiles.findIndex(p => p.user.clerkId === clerkId)
       if (rankIdx !== -1) {
         myRank = rankIdx + 1
       } else {
@@ -62,6 +70,7 @@ export async function GET() {
       leaderboard = topProfiles.map((p, i) => ({
         rank: i + 1,
         userId: p.user.clerkId,
+        dbId: p.user.id,                          // ← needed for follow API
         name: [p.user.firstName, p.user.lastName].filter(Boolean).join(' ') || 'Anonymous',
         username: p.user.username ?? p.user.firstName?.toLowerCase() ?? 'user',
         imageUrl: p.user.imageUrl,
@@ -69,6 +78,7 @@ export async function GET() {
         level: p.level,
         streak: p.currentStreak,
         isCurrentUser: p.user.clerkId === clerkId,
+        isFollowing: followingIds.has(p.user.id),  // ← new field
       }))
     } catch (e) {
       console.warn('Leaderboard query failed:', e)
@@ -94,7 +104,7 @@ export async function GET() {
         },
       })
 
-      feed = recentBadges.map((b) => ({
+      feed = recentBadges.map(b => ({
         id: `badge-${b.id}`,
         userId: b.user.clerkId,
         name: [b.user.firstName, b.user.lastName].filter(Boolean).join(' ') || 'Anonymous',
@@ -103,14 +113,13 @@ export async function GET() {
         type: 'badge',
         title: b.badge.name,
         description: b.badge.description,
-        xpEarned: undefined,
         icon: b.badge.icon,
         createdAt: b.earnedAt.toISOString(),
         likes: 0,
         liked: false,
       }))
     } catch (e) {
-      console.warn('Badge feed query failed (run: npx prisma db push):', e)
+      console.warn('Badge feed query failed:', e)
     }
 
     try {
@@ -137,8 +146,8 @@ export async function GET() {
       })
 
       const feedFromLessons = recentLessons
-        .filter((l) => l.completedAt)
-        .map((l) => ({
+        .filter(l => l.completedAt)
+        .map(l => ({
           id: `lesson-${l.id}`,
           userId: l.learningProgress.user.clerkId,
           name: [l.learningProgress.user.firstName, l.learningProgress.user.lastName].filter(Boolean).join(' ') || 'Anonymous',
@@ -158,7 +167,7 @@ export async function GET() {
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 20)
     } catch (e) {
-      console.warn('Lesson feed query failed (run: npx prisma db push):', e)
+      console.warn('Lesson feed query failed:', e)
     }
 
     // ── Challenges ───────────────────────────────────────────────────────────
@@ -197,16 +206,15 @@ export async function GET() {
         where: { user: { clerkId }, mission: { isActive: true } },
         select: { missionId: true, progress: true, isCompleted: true },
       })
-      const myMissionMap = new Map(myMissions.map((m) => [m.missionId, m]))
+      const myMissionMap = new Map(myMissions.map(m => [m.missionId, m]))
 
       const challengeTypeMap: Record<string, string> = {
         daily: 'lessons', weekly: 'xp', achievement: 'streak',
       }
 
-      challenges = activeMissions.map((m) => {
+      challenges = activeMissions.map(m => {
         const myM = myMissionMap.get(m.id)
-        const participants = m.userMissions.length
-        const topParticipants = m.userMissions.slice(0, 3).map((um) => ({
+        const topParticipants = m.userMissions.slice(0, 3).map(um => ({
           name: [um.user.firstName, um.user.lastName].filter(Boolean).join(' ') || 'Anonymous',
           imageUrl: um.user.imageUrl,
           value: um.progress,
@@ -215,7 +223,7 @@ export async function GET() {
           ? `${Math.max(0, Math.ceil((m.endDate.getTime() - Date.now()) / 86400000))}d`
           : m.type === 'daily' ? '1d' : '7d'
         const sorted = [...m.userMissions].sort((a, b) => b.progress - a.progress)
-        const myRankInChallenge = myM ? sorted.findIndex((u) => u.userId === me.id) + 1 : null
+        const myRankInChallenge = myM ? sorted.findIndex(u => u.userId === me.id) + 1 : null
 
         return {
           id: m.id,
@@ -223,7 +231,7 @@ export async function GET() {
           description: m.description,
           type: challengeTypeMap[m.type] ?? 'xp',
           icon: m.type === 'daily' ? '🎯' : m.type === 'weekly' ? '🏆' : '🌟',
-          participants,
+          participants: m.userMissions.length,
           endsIn,
           myRank: myRankInChallenge || null,
           myProgress: myM?.progress ?? 0,
@@ -233,7 +241,7 @@ export async function GET() {
         }
       })
     } catch (e) {
-      console.warn('Challenges query failed (run: npx prisma db push):', e)
+      console.warn('Challenges query failed:', e)
     }
 
     return NextResponse.json({
