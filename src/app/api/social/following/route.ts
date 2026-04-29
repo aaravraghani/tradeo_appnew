@@ -56,6 +56,7 @@ export async function GET() {
       level: f.following.profile?.level ?? 1,
       streak: f.following.profile?.currentStreak ?? 0,
       isCurrentUser: false,
+      isFollowing: true,  // ← always true — this IS the following list
     }))
 
     return NextResponse.json({ following: shaped })
