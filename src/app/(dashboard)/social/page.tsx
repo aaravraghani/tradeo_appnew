@@ -219,20 +219,34 @@ function LeaderboardTab({
   const [subTab, setSubTab] = useState<'global' | 'friends'>('global')
   const [friends, setFriends] = useState<LeaderboardEntry[]>([])
   const [loadingFriends, setLoadingFriends] = useState(false)
+  const [friendsLoaded, setFriendsLoaded] = useState(false)
 
   const loadFriends = useCallback(async () => {
-    if (friends.length > 0) return
+    if (friendsLoaded) return
     setLoadingFriends(true)
     try {
       const res = await fetch('/api/social/following')
       const data = await res.json()
       setFriends(data.following ?? [])
+      setFriendsLoaded(true)
     } catch {
       // ignore
     } finally {
       setLoadingFriends(false)
     }
-  }, [friends.length])
+  }, [friendsLoaded])
+
+  // When unfollowing from Friends tab, remove them from the list immediately
+  const handleFriendsToggle = (userId: string, nowFollowing: boolean) => {
+    if (!nowFollowing) {
+      setFriends(prev =>
+        prev
+          .filter(f => f.userId !== userId)
+          .map((f, i) => ({ ...f, rank: i + 1 }))
+      )
+    }
+    onFollowToggle(userId, nowFollowing)
+  }
 
   useEffect(() => {
     if (subTab === 'friends') loadFriends()
@@ -401,7 +415,7 @@ function LeaderboardTab({
                 <FollowButton
                   userId={entry.userId}
                   initialFollowing={entry.isFollowing}
-                  onToggle={onFollowToggle}
+                  onToggle={subTab === 'friends' ? handleFriendsToggle : onFollowToggle}
                 />
               )}
             </div>
