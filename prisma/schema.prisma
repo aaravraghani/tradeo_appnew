@@ -16,8 +16,8 @@ model User {
   firstName     String?
   lastName      String?
   imageUrl      String?
-  username      String?   @unique   
-  bio           String?            
+  username      String?   @unique
+  bio           String?
   country       String?
   language      String?
   dateOfBirth   DateTime?
@@ -37,14 +37,19 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   // Relations
-  profile       UserProfile?
-  progress      LearningProgress[]
-  portfolio     Portfolio?
-  transactions  Transaction[]
-  badges        UserBadge[]
-  missions      UserMission[]
-  streaks       DailyStreak[]
-  aiChats       AIChatHistory[]
+  profile            UserProfile?
+  progress           LearningProgress[]
+  portfolio          Portfolio?
+  transactions       Transaction[]
+  badges             UserBadge[]
+  missions           UserMission[]
+  streaks            DailyStreak[]
+  aiChats            AIChatHistory[]
+  followers          UserFollow[]       @relation("Following")
+  following          UserFollow[]       @relation("Follower")
+  challengesSent     DirectChallenge[]  @relation("Challenger")
+  challengesReceived DirectChallenge[]  @relation("Challenged")
+  notifications      Notification[]
 
   @@index([clerkId])
   @@index([email])
@@ -54,18 +59,18 @@ model UserProfile {
   id                    String   @id @default(cuid())
   userId                String   @unique
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   totalXP               Int      @default(0)
   level                 Int      @default(1)
   currentStreak         Int      @default(0)
   longestStreak         Int      @default(0)
   totalLessonsCompleted Int      @default(0)
   totalTradesMade       Int      @default(0)
-  
+
   notificationsEnabled  Boolean  @default(true)
   emailNotifications    Boolean  @default(true)
   darkMode              Boolean  @default(false)
-  
+
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -363,20 +368,70 @@ model Leaderboard {
   periodEnd   DateTime
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
 
   @@unique([userId, type, period, periodStart])
   @@index([type, period, periodStart])
   @@index([rank])
 }
+
+// ==================== SOCIAL ====================
+
 model SocialLike {
   id         String   @id @default(cuid())
   userId     String
-  feedItemId String   // composite key e.g. "badge-{id}" or "lesson-{id}"
+  feedItemId String
   createdAt  DateTime @default(now())
 
   @@unique([userId, feedItemId])
   @@index([userId])
   @@index([feedItemId])
 }
+
+// ==================== FRIENDS & NOTIFICATIONS ====================
+
+model UserFollow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model DirectChallenge {
+  id                  String    @id @default(cuid())
+  challengerId        String
+  challenger          User      @relation("Challenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  challengedId        String
+  challenged          User      @relation("Challenged", fields: [challengedId], references: [id], onDelete: Cascade)
+  status              String    @default("pending")
+  startXPChallenger   Int       @default(0)
+  startXPChallenged   Int       @default(0)
+  startsAt            DateTime?
+  endsAt              DateTime?
+  winnerId            String?
+  createdAt           DateTime  @default(now())
+
+  @@index([challengerId])
+  @@index([challengedId])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  fromUserId String?
+  data       String?
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+
 
