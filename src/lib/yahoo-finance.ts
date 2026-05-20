@@ -52,13 +52,63 @@ export function getFlag(country: string) {
 }
 
 // ── Fetch quote(s) ────────────────────────────────────────────────────────────
+// ── Get a cookie + crumb from Yahoo (required since 2024) ───────────────────
+async function getYahooCrumb(): Promise<{ cookie: string; crumb: string } | null> {
+  try {
+    // Step 1: hit the consent page to get a cookie
+    const cookieRes = await fetch('https://fc.yahoo.com', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      redirect: 'manual',
+    })
+    const rawCookie = cookieRes.headers.get('set-cookie') ?? ''
+    const cookie = rawCookie.split(';')[0]
+
+    // Step 2: use cookie to get a crumb
+    const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Cookie': cookie,
+      },
+    })
+    const crumb = await crumbRes.text()
+    if (!crumb || crumb.includes('<')) return null
+    return { cookie, crumb }
+  } catch {
+    return null
+  }
+}
+
+const YAHOO_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Origin': 'https://finance.yahoo.com',
+  'Referer': 'https://finance.yahoo.com/',
+}
+
 export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   const joined = symbols.join(',')
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(joined)}&fields=shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow,trailingPE,currency`
+
+  // Try v8 endpoint first (more reliable, no crumb needed on some regions)
+  const v8Url = `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(joined)}&range=1d&interval=1d`
+
+  // Primary: v7 with crumb
+  const auth = await getYahooCrumb()
+  const fields = 'shortName,longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow,trailingPE,currency'
+
+  const url = auth
+    ? `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(joined)}&fields=${fields}&crumb=${encodeURIComponent(auth.crumb)}`
+    : `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(joined)}&fields=${fields}`
+
+  const headers: Record<string, string> = { ...YAHOO_HEADERS }
+  if (auth?.cookie) headers['Cookie'] = auth.cookie
 
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    next: { revalidate: 60 }, // cache 60s
+    headers,
+    next: { revalidate: 60 },
   })
 
   if (!res.ok) throw new Error(`Yahoo Finance API error: ${res.status}`)
@@ -95,10 +145,16 @@ export async function fetchChart(symbol: string, range: ChartRange = '1mo'): Pro
     '3mo': '1d', '6mo': '1wk', '1y': '1wk',
   }
   const interval = intervalMap[range]
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
+
+  const auth = await getYahooCrumb()
+  const base = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
+  const url = auth ? `${base}&crumb=${encodeURIComponent(auth.crumb)}` : base
+
+  const headers: Record<string, string> = { ...YAHOO_HEADERS }
+  if (auth?.cookie) headers['Cookie'] = auth.cookie
 
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
+    headers,
     next: { revalidate: 120 },
   })
 
@@ -137,4 +193,5 @@ export function formatMarketCap(cap: number): string {
   if (cap >= 1e6) return `$${(cap / 1e6).toFixed(1)}M`
   return `$${cap.toLocaleString()}`
 }
+
 
