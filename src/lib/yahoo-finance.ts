@@ -52,10 +52,16 @@ export function getFlag(country: string) {
 }
 
 // ── Fetch quote(s) ────────────────────────────────────────────────────────────
-// ── Get a cookie + crumb from Yahoo (required since 2024) ───────────────────
+// ── Crumb cache — reuse for 55 minutes to avoid rate limits ─────────────────
+let crumbCache: { cookie: string; crumb: string; expiresAt: number } | null = null
+
 async function getYahooCrumb(): Promise<{ cookie: string; crumb: string } | null> {
+  // Return cached crumb if still valid (55 min TTL)
+  if (crumbCache && Date.now() < crumbCache.expiresAt) {
+    return { cookie: crumbCache.cookie, crumb: crumbCache.crumb }
+  }
+
   try {
-    // Step 1: hit the consent page to get a cookie
     const cookieRes = await fetch('https://fc.yahoo.com', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -66,7 +72,6 @@ async function getYahooCrumb(): Promise<{ cookie: string; crumb: string } | null
     const rawCookie = cookieRes.headers.get('set-cookie') ?? ''
     const cookie = rawCookie.split(';')[0]
 
-    // Step 2: use cookie to get a crumb
     const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -75,10 +80,28 @@ async function getYahooCrumb(): Promise<{ cookie: string; crumb: string } | null
     })
     const crumb = await crumbRes.text()
     if (!crumb || crumb.includes('<')) return null
+
+    // Cache for 55 minutes
+    crumbCache = { cookie, crumb, expiresAt: Date.now() + 55 * 60 * 1000 }
     return { cookie, crumb }
   } catch {
     return null
   }
+}
+
+// ── Fetch with retry on 429 ───────────────────────────────────────────────────
+async function fetchWithRetry(url: string, headers: Record<string, string>, retries = 2): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    const res = await fetch(url, { headers, next: { revalidate: 60 } })
+    if (res.status === 429 && i < retries) {
+      // Invalidate crumb cache on 429 — Yahoo may have rotated it
+      crumbCache = null
+      await new Promise(r => setTimeout(r, 1000 * (i + 1))) // 1s, 2s backoff
+      continue
+    }
+    return res
+  }
+  throw new Error('Max retries exceeded')
 }
 
 const YAHOO_HEADERS = {
@@ -106,10 +129,7 @@ export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   const headers: Record<string, string> = { ...YAHOO_HEADERS }
   if (auth?.cookie) headers['Cookie'] = auth.cookie
 
-  const res = await fetch(url, {
-    headers,
-    next: { revalidate: 60 },
-  })
+  const res = await fetchWithRetry(url, headers)
 
   if (!res.ok) throw new Error(`Yahoo Finance API error: ${res.status}`)
 
@@ -153,10 +173,7 @@ export async function fetchChart(symbol: string, range: ChartRange = '1mo'): Pro
   const headers: Record<string, string> = { ...YAHOO_HEADERS }
   if (auth?.cookie) headers['Cookie'] = auth.cookie
 
-  const res = await fetch(url, {
-    headers,
-    next: { revalidate: 120 },
-  })
+  const res = await fetchWithRetry(url, headers)
 
   if (!res.ok) throw new Error(`Chart API error: ${res.status}`)
 
