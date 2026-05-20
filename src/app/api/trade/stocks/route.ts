@@ -31,6 +31,10 @@ export async function GET() {
         regularMarketDayHigh: 55,
         regularMarketDayLow: 45,
         regularMarketVolume: Math.floor(Math.random() * 10000000),
+        marketCap: undefined as number | undefined,
+        fiftyTwoWeekHigh: undefined as number | undefined,
+        fiftyTwoWeekLow: undefined as number | undefined,
+        trailingPE: undefined as number | undefined,
       }))
     }
 
