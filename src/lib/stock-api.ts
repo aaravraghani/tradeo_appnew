@@ -214,3 +214,4 @@ export function formatMarketCap(cap: number): string {
   if (cap >= 1e6)  return `$${(cap / 1e6).toFixed(1)}M`
   return `$${cap.toLocaleString()}`
 }
+
