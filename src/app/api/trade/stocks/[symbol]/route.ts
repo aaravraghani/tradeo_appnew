@@ -2,8 +2,8 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
-import { fetchQuotes, fetchChart, SEA_STOCKS, getFlag } from '@/lib/yahoo-finance'
-import type { ChartRange } from '@/lib/yahoo-finance'
+import { fetchQuotes, fetchChart, SEA_STOCKS, getFlag } from '@/lib/stock-api'
+import type { ChartRange } from '@/lib/stock-api'
 
 export async function GET(
   req: Request,
@@ -54,5 +54,3 @@ export async function GET(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
-
