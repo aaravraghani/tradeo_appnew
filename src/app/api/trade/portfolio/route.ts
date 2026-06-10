@@ -4,7 +4,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { fetchQuotes } from '@/lib/yahoo-finance'
+import { fetchQuotes } from '@/lib/stock-api'
 
 export async function GET() {
   try {
@@ -109,5 +109,3 @@ export async function GET() {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
-
