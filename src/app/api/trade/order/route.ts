@@ -4,7 +4,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { fetchQuotes, SEA_STOCKS } from '@/lib/yahoo-finance'
+import { fetchQuotes, SEA_STOCKS } from '@/lib/stock-api'
 import { z } from 'zod'
 
 const orderSchema = z.object({
@@ -235,5 +235,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
-
