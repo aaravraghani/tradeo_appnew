@@ -1,6 +1,7 @@
 // src/lib/stock-api.ts
-// Stock price data via Finnhub (free tier, 60 req/min, works from Vercel)
-// Get a free API key at: https://finnhub.io/register
+// Quotes  → Finnhub free tier (60 req/min, works from Vercel)
+// Charts  → Yahoo Finance v8 chart endpoint (no auth needed, just chart data)
+// Get Finnhub key at: https://finnhub.io/register
 
 export interface StockQuote {
   symbol: string
@@ -48,16 +49,15 @@ export const SEA_STOCKS = [
 const COUNTRY_FLAGS: Record<string, string> = {
   SG: '🇸🇬', ID: '🇮🇩', MY: '🇲🇾', TH: '🇹🇭', VN: '🇻🇳', PH: '🇵🇭', HK: '🇭🇰',
 }
-
 export function getFlag(country: string): string {
   return COUNTRY_FLAGS[country] ?? '🌏'
 }
 
-// ── Finnhub API ───────────────────────────────────────────────────────────────
+// ── Finnhub — quotes only ─────────────────────────────────────────────────────
 
 function getFinnhubKey(): string {
   const key = process.env.FINNHUB_API_KEY
-  if (!key) throw new Error('FINNHUB_API_KEY env var not set — add it in Vercel → Settings → Environment Variables')
+  if (!key) throw new Error('FINNHUB_API_KEY env var not set')
   return key
 }
 
@@ -68,7 +68,6 @@ async function fetchFinnhubQuote(symbol: string, apiKey: string) {
   )
   if (!res.ok) throw new Error(`Finnhub quote error: ${res.status} for ${symbol}`)
   return res.json()
-  // Returns: { c: current, d: change, dp: changePercent, h: high, l: low, o: open, pc: prevClose }
 }
 
 async function fetchFinnhubProfile(symbol: string, apiKey: string) {
@@ -84,15 +83,12 @@ async function fetchFinnhubProfile(symbol: string, apiKey: string) {
   }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   const apiKey = getFinnhubKey()
 
   const results = await Promise.allSettled(
     symbols.map(async (symbol) => {
       const meta = SEA_STOCKS.find(s => s.symbol === symbol)
-
       const [quote, profile] = await Promise.all([
         fetchFinnhubQuote(symbol, apiKey),
         fetchFinnhubProfile(symbol, apiKey),
@@ -130,63 +126,64 @@ export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
     .filter(q => q.regularMarketPrice > 0)
 }
 
+// ── Yahoo Finance v8 — chart data only ───────────────────────────────────────
+// This endpoint is public (no API key), returns OHLCV candles.
+// Works from Vercel as long as we use a browser-like User-Agent.
+
 export type ChartRange = '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y'
 
+const YF_RANGE_MAP: Record<ChartRange, { range: string; interval: string }> = {
+  '1d':  { range: '5d',  interval: '1d'  }, // show 5 days of daily bars
+  '5d':  { range: '1mo', interval: '1d'  }, // show 1 month of daily bars
+  '1mo': { range: '3mo', interval: '1d'  }, // show 3 months of daily bars
+  '3mo': { range: '6mo', interval: '1wk' },
+  '6mo': { range: '1y',  interval: '1wk' },
+  '1y':  { range: '2y',  interval: '1wk' },
+}
+
 export async function fetchChart(symbol: string, range: ChartRange = '1mo'): Promise<ChartPoint[]> {
-  const apiKey = getFinnhubKey()
+  const { range: yfRange, interval } = YF_RANGE_MAP[range]
 
-  const now = Math.floor(Date.now() / 1000)
-
-  // ── FIX: Finnhub free tier only supports daily (D) and weekly (W) candles
-  // for most symbols. Intraday (5, 15, 60) requires premium. Map all ranges
-  // to daily or weekly resolution to avoid empty responses.
-  const rangeSeconds: Record<ChartRange, number> = {
-    '1d':  7 * 86400,    // show 7 days of daily candles for "1d" view
-    '5d':  14 * 86400,   // show 2 weeks of daily candles for "5d" view
-    '1mo': 30 * 86400,
-    '3mo': 90 * 86400,
-    '6mo': 180 * 86400,
-    '1y':  365 * 86400,
-  }
-
-  const resolutionMap: Record<ChartRange, string> = {
-    '1d':  'D',   // daily (free tier)
-    '5d':  'D',   // daily (free tier)
-    '1mo': 'D',   // daily
-    '3mo': 'D',   // daily
-    '6mo': 'W',   // weekly
-    '1y':  'W',   // weekly
-  }
-
-  const from = now - rangeSeconds[range]
-  const resolution = resolutionMap[range]
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${yfRange}&interval=${interval}&includePrePost=false`
 
   try {
-    const res = await fetch(
-      `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${now}&token=${apiKey}`,
-      { next: { revalidate: 120 } }
-    )
+    const res = await fetch(url, {
+      headers: {
+        // Must send a browser-like User-Agent — Yahoo blocks bare fetch()
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Origin': 'https://finance.yahoo.com',
+        'Referer': 'https://finance.yahoo.com/',
+      },
+      next: { revalidate: 300 }, // cache 5 min
+    })
 
-    if (!res.ok) throw new Error(`Finnhub chart error: ${res.status}`)
-
-    const data = await res.json()
-
-    // data.s === 'no_data' means market closed or symbol not found on free tier
-    if (data.s !== 'ok' || !data.t || data.t.length === 0) {
-      console.warn(`Finnhub chart: no data for ${symbol} range=${range} status=${data.s}`)
+    if (!res.ok) {
+      console.warn(`Yahoo chart ${res.status} for ${symbol} — returning empty`)
       return []
     }
 
-    return (data.t as number[])
+    const data = await res.json()
+    const result = data?.chart?.result?.[0]
+    if (!result) return []
+
+    const timestamps: number[] = result.timestamp ?? []
+    const ohlcv = result.indicators?.quote?.[0]
+
+    if (!timestamps.length || !ohlcv) return []
+
+    return timestamps
       .map((ts, i) => ({
         timestamp: ts * 1000,
-        open:   data.o?.[i] ?? 0,
-        high:   data.h?.[i] ?? 0,
-        low:    data.l?.[i] ?? 0,
-        close:  data.c?.[i] ?? 0,
-        volume: data.v?.[i] ?? 0,
+        open:   ohlcv.open?.[i]   ?? 0,
+        high:   ohlcv.high?.[i]   ?? 0,
+        low:    ohlcv.low?.[i]    ?? 0,
+        close:  ohlcv.close?.[i]  ?? 0,
+        volume: ohlcv.volume?.[i] ?? 0,
       }))
-      .filter(p => p.close > 0)
+      .filter(p => p.close != null && p.close > 0)
 
   } catch (err) {
     console.error(`fetchChart error for ${symbol}:`, err)
