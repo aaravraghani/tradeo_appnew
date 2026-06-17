@@ -32,16 +32,16 @@ export interface ChartPoint {
 
 // ── Stock list — US-listed Asian stocks, Finnhub free tier compatible ─────────
 export const SEA_STOCKS = [
-  { symbol: 'SE',   name: 'Sea Limited',    country: 'SG', icon: '🌊', sector: 'Technology', currency: 'USD' },
-  { symbol: 'GRAB', name: 'Grab Holdings',  country: 'SG', icon: '🚗', sector: 'Technology', currency: 'USD' },
-  { symbol: 'BABA', name: 'Alibaba',        country: 'HK', icon: '🛒', sector: 'Technology', currency: 'USD' },
-  { symbol: 'JD',   name: 'JD.com',         country: 'HK', icon: '📦', sector: 'E-Commerce', currency: 'USD' },
-  { symbol: 'BEKE', name: 'KE Holdings',    country: 'HK', icon: '🏠', sector: 'Real Estate', currency: 'USD' },
-  { symbol: 'IQ',   name: 'iQIYI',          country: 'HK', icon: '🎬', sector: 'Media',       currency: 'USD' },
-  { symbol: 'NTES', name: 'NetEase',         country: 'HK', icon: '🎮', sector: 'Technology',  currency: 'USD' },
-  { symbol: 'TME',  name: 'Tencent Music',  country: 'HK', icon: '🎵', sector: 'Media',       currency: 'USD' },
-  { symbol: 'WB',   name: 'Weibo',          country: 'HK', icon: '💬', sector: 'Social',      currency: 'USD' },
-  { symbol: 'HTHT', name: 'H World Group',  country: 'HK', icon: '🏨', sector: 'Hospitality', currency: 'USD' },
+  { symbol: 'SE',   name: 'Sea Limited',   country: 'SG', icon: '🌊', sector: 'Technology', currency: 'USD' },
+  { symbol: 'GRAB', name: 'Grab Holdings', country: 'SG', icon: '🚗', sector: 'Technology', currency: 'USD' },
+  { symbol: 'BABA', name: 'Alibaba',       country: 'HK', icon: '🛒', sector: 'Technology', currency: 'USD' },
+  { symbol: 'JD',   name: 'JD.com',        country: 'HK', icon: '📦', sector: 'E-Commerce', currency: 'USD' },
+  { symbol: 'BEKE', name: 'KE Holdings',   country: 'HK', icon: '🏠', sector: 'Real Estate', currency: 'USD' },
+  { symbol: 'IQ',   name: 'iQIYI',         country: 'HK', icon: '🎬', sector: 'Media',       currency: 'USD' },
+  { symbol: 'NTES', name: 'NetEase',        country: 'HK', icon: '🎮', sector: 'Technology',  currency: 'USD' },
+  { symbol: 'TME',  name: 'Tencent Music', country: 'HK', icon: '🎵', sector: 'Media',       currency: 'USD' },
+  { symbol: 'WB',   name: 'Weibo',         country: 'HK', icon: '💬', sector: 'Social',      currency: 'USD' },
+  { symbol: 'HTHT', name: 'H World Group', country: 'HK', icon: '🏨', sector: 'Hospitality', currency: 'USD' },
 ]
 
 // ── Country flags ─────────────────────────────────────────────────────────────
@@ -98,24 +98,27 @@ export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
         fetchFinnhubProfile(symbol, apiKey),
       ])
 
+      // Use previousClose as fallback when market is closed (c returns 0)
+      const price = quote.c > 0 ? quote.c : (quote.pc ?? 0)
+
       return {
         symbol,
         shortName: profile?.name ?? meta?.name ?? symbol,
         longName:  profile?.name ?? meta?.name ?? symbol,
         currency:  profile?.currency ?? meta?.currency ?? 'USD',
-        regularMarketPrice:        quote.c  ?? 0,
-        regularMarketChange:       quote.d  ?? 0,
-        regularMarketChangePercent:quote.dp ?? 0,
-        regularMarketPreviousClose:quote.pc ?? 0,
-        regularMarketOpen:         quote.o  ?? 0,
-        regularMarketDayHigh:      quote.h  ?? 0,
-        regularMarketDayLow:       quote.l  ?? 0,
-        regularMarketVolume:       0,
+        regularMarketPrice:         price,
+        regularMarketChange:        quote.d  ?? 0,
+        regularMarketChangePercent: quote.dp ?? 0,
+        regularMarketPreviousClose: quote.pc ?? 0,
+        regularMarketOpen:          quote.o  ?? 0,
+        regularMarketDayHigh:       quote.h  ?? 0,
+        regularMarketDayLow:        quote.l  ?? 0,
+        regularMarketVolume:        0,
         marketCap: profile?.marketCapitalization
           ? profile.marketCapitalization * 1e6
           : undefined,
-        fiftyTwoWeekHigh:  undefined,
-        fiftyTwoWeekLow:   undefined,
+        fiftyTwoWeekHigh: undefined,
+        fiftyTwoWeekLow:  undefined,
         trailingPE: profile?.peNormalizedAnnual ?? undefined,
       } as StockQuote
     })
@@ -134,9 +137,12 @@ export async function fetchChart(symbol: string, range: ChartRange = '1mo'): Pro
 
   const now = Math.floor(Date.now() / 1000)
 
+  // ── FIX: Finnhub free tier only supports daily (D) and weekly (W) candles
+  // for most symbols. Intraday (5, 15, 60) requires premium. Map all ranges
+  // to daily or weekly resolution to avoid empty responses.
   const rangeSeconds: Record<ChartRange, number> = {
-    '1d':  86400,
-    '5d':  5 * 86400,
+    '1d':  7 * 86400,    // show 7 days of daily candles for "1d" view
+    '5d':  14 * 86400,   // show 2 weeks of daily candles for "5d" view
     '1mo': 30 * 86400,
     '3mo': 90 * 86400,
     '6mo': 180 * 86400,
@@ -144,33 +150,48 @@ export async function fetchChart(symbol: string, range: ChartRange = '1mo'): Pro
   }
 
   const resolutionMap: Record<ChartRange, string> = {
-    '1d': '5', '5d': '15', '1mo': 'D', '3mo': 'D', '6mo': 'W', '1y': 'W',
+    '1d':  'D',   // daily (free tier)
+    '5d':  'D',   // daily (free tier)
+    '1mo': 'D',   // daily
+    '3mo': 'D',   // daily
+    '6mo': 'W',   // weekly
+    '1y':  'W',   // weekly
   }
 
   const from = now - rangeSeconds[range]
   const resolution = resolutionMap[range]
 
-  const res = await fetch(
-    `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${now}&token=${apiKey}`,
-    { next: { revalidate: 120 } }
-  )
+  try {
+    const res = await fetch(
+      `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${now}&token=${apiKey}`,
+      { next: { revalidate: 120 } }
+    )
 
-  if (!res.ok) throw new Error(`Finnhub chart error: ${res.status}`)
+    if (!res.ok) throw new Error(`Finnhub chart error: ${res.status}`)
 
-  const data = await res.json()
+    const data = await res.json()
 
-  if (data.s !== 'ok' || !data.t) return []
+    // data.s === 'no_data' means market closed or symbol not found on free tier
+    if (data.s !== 'ok' || !data.t || data.t.length === 0) {
+      console.warn(`Finnhub chart: no data for ${symbol} range=${range} status=${data.s}`)
+      return []
+    }
 
-  return (data.t as number[])
-    .map((ts, i) => ({
-      timestamp: ts * 1000,
-      open:   data.o?.[i] ?? 0,
-      high:   data.h?.[i] ?? 0,
-      low:    data.l?.[i] ?? 0,
-      close:  data.c?.[i] ?? 0,
-      volume: data.v?.[i] ?? 0,
-    }))
-    .filter(p => p.close > 0)
+    return (data.t as number[])
+      .map((ts, i) => ({
+        timestamp: ts * 1000,
+        open:   data.o?.[i] ?? 0,
+        high:   data.h?.[i] ?? 0,
+        low:    data.l?.[i] ?? 0,
+        close:  data.c?.[i] ?? 0,
+        volume: data.v?.[i] ?? 0,
+      }))
+      .filter(p => p.close > 0)
+
+  } catch (err) {
+    console.error(`fetchChart error for ${symbol}:`, err)
+    return []
+  }
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -191,4 +212,5 @@ export function formatMarketCap(cap: number): string {
   if (cap >= 1e6)  return `$${(cap / 1e6).toFixed(1)}M`
   return `$${cap.toLocaleString()}`
 }
+
 
