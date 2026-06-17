@@ -30,14 +30,26 @@ export async function POST(req: Request) {
     const stockMeta = SEA_STOCKS.find(s => s.symbol === symbol)
     if (!stockMeta) return NextResponse.json({ error: 'Stock not supported' }, { status: 400 })
 
-    // Get live price
-    const quotes = await fetchQuotes([symbol])
-    const quote = quotes[0]
-    if (!quote || quote.regularMarketPrice <= 0) {
-      return NextResponse.json({ error: 'Could not fetch current price' }, { status: 503 })
+    // Get live price — fallback to previousClose when market is closed
+    let price = 0
+    try {
+      const quotes = await fetchQuotes([symbol])
+      const quote = quotes[0]
+      if (quote && quote.regularMarketPrice > 0) {
+        price = quote.regularMarketPrice
+      } else if (quote && quote.regularMarketPreviousClose > 0) {
+        // Market closed — use last known close price
+        price = quote.regularMarketPreviousClose
+      }
+    } catch (err) {
+      console.error('fetchQuotes error in order route:', err)
     }
 
-    const price = quote.regularMarketPrice
+    if (price <= 0) {
+      return NextResponse.json({
+        error: 'Could not fetch current price. Market may be closed or the stock is temporarily unavailable. Please try again in a moment.'
+      }, { status: 503 })
+    }
     const totalCost = price * quantity
 
     // Get user + portfolio
